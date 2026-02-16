@@ -8,7 +8,7 @@ import VehicleService from '../services/vehicle.service';
 import LocationService from '../services/location.service';
 import OptimizationService from '../services/optimization.service';
 import Map from '../components/Map';
-import { useToast } from '../components/ToastProvider';
+// Removed unused useToast import
 import '../styles/Dashboard.css';
 
 const Dashboard = () => {
@@ -23,7 +23,7 @@ const Dashboard = () => {
     totalDistance: 0
   });
   const [selectedOptimization, setSelectedOptimization] = useState(null);
-  const { notify } = useToast();
+  // Removed unused 'notify' assignment
 
   const fetchData = useCallback(async () => {
     try {
@@ -72,7 +72,7 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, []); // Removed 'notify' from dependency array to satisfy react-hooks/exhaustive-deps
+  }, []); 
 
   useEffect(() => {
     fetchData();
