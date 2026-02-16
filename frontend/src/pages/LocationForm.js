@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import Map, { Marker } from 'react-map-gl';
 import 'mapbox-gl/dist/mapbox-gl.css';
@@ -24,8 +24,8 @@ const LocationForm = () => {
   });
   
   const [viewState, setViewState] = useState({
-    longitude: 77.1025,
-    latitude: 28.7041,
+    longitude: -84.3880,  // Atlanta longitude
+    latitude: 33.7490,     // Atlanta latitude
     zoom: 11
   });
   
@@ -35,31 +35,8 @@ const LocationForm = () => {
   const [showSearch, setShowSearch] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
 
-  useEffect(() => {
-    if (isEditMode) {
-      fetchLocation();
-    }
-  }, [id, isEditMode]);
-
-  useEffect(() => {
-    // Update marker when coordinates change
-    if (formData.latitude && formData.longitude) {
-      const lat = parseFloat(formData.latitude);
-      const lng = parseFloat(formData.longitude);
-      
-      if (!isNaN(lat) && !isNaN(lng)) {
-        setMarkerPosition({ longitude: lng, latitude: lat });
-        setViewState(prev => ({
-          ...prev,
-          longitude: lng,
-          latitude: lat,
-          zoom: 13
-        }));
-      }
-    }
-  }, [formData.latitude, formData.longitude]);
-
-  const fetchLocation = async () => {
+  // FIX: Wrap fetchLocation in useCallback to include in dependency array
+  const fetchLocation = useCallback(async () => {
     try {
       setLoading(true);
       const response = await LocationService.get(id);
@@ -80,7 +57,32 @@ const LocationForm = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id, notify]); // Add dependencies
+
+  // FIX: Add fetchLocation to dependency array
+  useEffect(() => {
+    if (isEditMode) {
+      fetchLocation();
+    }
+  }, [id, isEditMode, fetchLocation]); // Added fetchLocation here
+
+  useEffect(() => {
+    // Update marker when coordinates change
+    if (formData.latitude && formData.longitude) {
+      const lat = parseFloat(formData.latitude);
+      const lng = parseFloat(formData.longitude);
+      
+      if (!isNaN(lat) && !isNaN(lng)) {
+        setMarkerPosition({ longitude: lng, latitude: lat });
+        setViewState(prev => ({
+          ...prev,
+          longitude: lng,
+          latitude: lat,
+          zoom: 13
+        }));
+      }
+    }
+  }, [formData.latitude, formData.longitude]);
 
   const handleMapClick = (event) => {
     if (event.lngLat) {
@@ -313,7 +315,7 @@ const LocationForm = () => {
               value={formData.latitude}
               onChange={onChange}
               required
-              placeholder="e.g., 40.7128"
+              placeholder="e.g., 33.7490"
               readOnly={showSearch}
             />
           </div>
@@ -326,7 +328,7 @@ const LocationForm = () => {
               value={formData.longitude}
               onChange={onChange}
               required
-              placeholder="e.g., -74.0060"
+              placeholder="e.g., -84.3880"
               readOnly={showSearch}
             />
           </div>
