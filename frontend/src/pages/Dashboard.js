@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   FaTruck, FaMapMarkerAlt, FaRoute, FaPlus, 
-  FaCalendarAlt, FaClock, FaRoad 
+  FaRoad 
 } from 'react-icons/fa';
 import VehicleService from '../services/vehicle.service';
 import LocationService from '../services/location.service';
@@ -30,14 +30,12 @@ const Dashboard = () => {
       setLoading(true);
       setError('');
       
-      // Fetch all data in parallel for better performance
       const [vehiclesRes, locationsRes, optimizationsRes] = await Promise.allSettled([
         VehicleService.getAll(),
         LocationService.getAll(),
         OptimizationService.getAll()
       ]);
 
-      // Normalize data: Ensure we always have arrays even if a service fails
       const vehiclesData = vehiclesRes.status === 'fulfilled' && Array.isArray(vehiclesRes.value) ? vehiclesRes.value : [];
       const locationsData = locationsRes.status === 'fulfilled' && Array.isArray(locationsRes.value) ? locationsRes.value : [];
       const optimizationsData = optimizationsRes.status === 'fulfilled' && Array.isArray(optimizationsRes.value) ? optimizationsRes.value : [];
@@ -45,7 +43,6 @@ const Dashboard = () => {
       setVehicles(vehiclesData);
       setLocations(locationsData);
 
-      // FIX: Safe reduce to prevent "a.reduce is not a function"
       const totalDistance = optimizationsData.reduce(
         (sum, opt) => sum + (Number(opt.totalDistance) || 0), 
         0
@@ -58,7 +55,6 @@ const Dashboard = () => {
         totalDistance
       });
       
-      // FIX: Safe sort for most recent optimization
       if (optimizationsData.length > 0) {
         const sorted = [...optimizationsData].sort((a, b) => {
           const dateA = new Date(a.createdAt || a.updatedAt || 0);
@@ -76,13 +72,12 @@ const Dashboard = () => {
     } finally {
       setLoading(false);
     }
-  }, [notify]);
+  }, []); // Removed 'notify' from dependency array to satisfy react-hooks/exhaustive-deps
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
 
-  // Format helpers
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
     const date = new Date(dateString);
@@ -94,7 +89,6 @@ const Dashboard = () => {
     return `${(isFinite(n) ? n : 0).toFixed(2)} km`;
   };
 
-  // Helper to map IDs back to full objects for the Map component
   const getMappedData = (type) => {
     if (!selectedOptimization || !selectedOptimization[type]) return [];
     const sourceArray = type === 'locations' ? locations : vehicles;
