@@ -1027,7 +1027,7 @@ const Home = () => {
         <div className="container mx-auto px-6">
           <div className="grid md:grid-cols-4 gap-8">
             <div className="col-span-2">
-              <h3 className="text-2xl font-bold mb-4">Route It</h3>
+              <h3 className="text-2xl font-bold mb-4">@LivePickup</h3>
               <p className="text-slate-400 mb-6 max-w-md">
                 Transform your logistics with AI-powered route optimization. Save time, reduce costs, and deliver more efficiently.
               </p>
@@ -1061,7 +1061,7 @@ const Home = () => {
           </div>
           
           <div className="border-t border-slate-800 mt-12 pt-8 text-center text-slate-400">
-            <p>&copy; {new Date().getFullYear()} Route It Team . All rights reserved.</p>
+            <p>&copy; {new Date().getFullYear()} @LivePickup . All rights reserved.</p>
           </div>
         </div>
       </footer>
@@ -1070,9 +1070,8 @@ const Home = () => {
         <div className="container mx-auto px-6 text-center">
           <div className="max-w-2xl mx-auto">
             <h3 className="text-2xl font-bold mb-4">Developed with ❤️ by</h3>
-            <div className="text-3xl font-bold text-blue-400 mb-6">Utkarsh Singh</div>
+            <div className="text-3xl font-bold text-blue-400 mb-6">Wizard of Hahz</div>
             <p className="text-slate-300 mb-8">
-              Full-stack developer passionate about creating innovative solutions for complex problems.
             </p>
             <div className="flex justify-center gap-6">
               <a 
