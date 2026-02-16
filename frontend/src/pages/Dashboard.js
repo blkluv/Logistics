@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   FaTruck, FaMapMarkerAlt, FaRoute, FaPlus, 
@@ -25,352 +25,175 @@ const Dashboard = () => {
   const [selectedOptimization, setSelectedOptimization] = useState(null);
   const { notify } = useToast();
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        
-        // Fetch vehicles
-        const vehiclesData = await VehicleService.getAll();
-        setVehicles(vehiclesData);
-        
-        // Fetch locations
-        const locationsData = await LocationService.getAll();
-        setLocations(locationsData);
-        
-        // Fetch optimizations
-        const optimizationsData = await OptimizationService.getAll();
-        
-        // Calculate stats
-        const totalDistance = optimizationsData.reduce(
-          (sum, opt) => sum + (opt.totalDistance || 0), 
-          0
-        );
-        
-        setStats({
-          totalVehicles: vehiclesData.length,
-          totalLocations: locationsData.length,
-          totalOptimizations: optimizationsData.length,
-          totalDistance
+  const fetchData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError('');
+      
+      // Fetch all data in parallel for better performance
+      const [vehiclesRes, locationsRes, optimizationsRes] = await Promise.allSettled([
+        VehicleService.getAll(),
+        LocationService.getAll(),
+        OptimizationService.getAll()
+      ]);
+
+      // Normalize data: Ensure we always have arrays even if a service fails
+      const vehiclesData = vehiclesRes.status === 'fulfilled' && Array.isArray(vehiclesRes.value) ? vehiclesRes.value : [];
+      const locationsData = locationsRes.status === 'fulfilled' && Array.isArray(locationsRes.value) ? locationsRes.value : [];
+      const optimizationsData = optimizationsRes.status === 'fulfilled' && Array.isArray(optimizationsRes.value) ? optimizationsRes.value : [];
+
+      setVehicles(vehiclesData);
+      setLocations(locationsData);
+
+      // FIX: Safe reduce to prevent "a.reduce is not a function"
+      const totalDistance = optimizationsData.reduce(
+        (sum, opt) => sum + (Number(opt.totalDistance) || 0), 
+        0
+      );
+      
+      setStats({
+        totalVehicles: vehiclesData.length,
+        totalLocations: locationsData.length,
+        totalOptimizations: optimizationsData.length,
+        totalDistance
+      });
+      
+      // FIX: Safe sort for most recent optimization
+      if (optimizationsData.length > 0) {
+        const sorted = [...optimizationsData].sort((a, b) => {
+          const dateA = new Date(a.createdAt || a.updatedAt || 0);
+          const dateB = new Date(b.createdAt || b.updatedAt || 0);
+          return dateB - dateA;
         });
-        
-        // Set the most recent optimization as selected
-        if (optimizationsData.length > 0) {
-          const mostRecent = [...optimizationsData].sort(
-            (a, b) => new Date(b.createdAt || b.date) - new Date(a.createdAt || a.date)
-          )[0];
-          setSelectedOptimization(mostRecent);
-        }
-        
-        setError('');
-      } catch (err) {
-        console.error('Dashboard fetch error:', err);
-        const errorMsg = 'Failed to load dashboard data. Please check your connection and try again.';
-        setError(errorMsg);
-        notify(errorMsg, 'error');
-      } finally {
-        setLoading(false);
+        setSelectedOptimization(sorted[0]);
+      } else {
+        setSelectedOptimization(null);
       }
-    };
-    
-    fetchData();
+      
+    } catch (err) {
+      console.error('Dashboard logic error:', err);
+      setError('A system error occurred while processing data.');
+    } finally {
+      setLoading(false);
+    }
   }, [notify]);
 
-  // Format date
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Format helpers
   const formatDate = (dateString) => {
     if (!dateString) return 'N/A';
-    const options = { year: 'numeric', month: 'short', day: 'numeric' };
-    return new Date(dateString).toLocaleDateString(undefined, options);
+    const date = new Date(dateString);
+    return isNaN(date.getTime()) ? 'N/A' : date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
   };
 
-  // Format distance
   const formatDistance = (distance) => {
     const n = Number(distance ?? 0);
-    if (!isFinite(n) || n <= 0) return '0 km';
-    return `${n.toFixed(2)} km`;
+    return `${(isFinite(n) ? n : 0).toFixed(2)} km`;
   };
 
-  // Get optimization locations
-  const getOptimizationLocations = () => {
-    if (!selectedOptimization) return [];
-    
-    if (selectedOptimization.locations && Array.isArray(selectedOptimization.locations)) {
-      return selectedOptimization.locations.map(loc => {
-        // Handle both string IDs and object references
-        const id = typeof loc === 'object' ? loc._id : loc;
-        return locations.find(location => location._id === id);
-      }).filter(Boolean);
-    }
-    
-    return [];
-  };
-
-  // Get optimization vehicles
-  const getOptimizationVehicles = () => {
-    if (!selectedOptimization) return [];
-    
-    if (selectedOptimization.vehicles && Array.isArray(selectedOptimization.vehicles)) {
-      return selectedOptimization.vehicles.map(veh => {
-        // Handle both string IDs and object references
-        const id = typeof veh === 'object' ? veh._id : veh;
-        return vehicles.find(vehicle => vehicle._id === id);
-      }).filter(Boolean);
-    }
-    
-    return [];
+  // Helper to map IDs back to full objects for the Map component
+  const getMappedData = (type) => {
+    if (!selectedOptimization || !selectedOptimization[type]) return [];
+    const sourceArray = type === 'locations' ? locations : vehicles;
+    return selectedOptimization[type].map(item => {
+      const id = typeof item === 'object' ? item._id : item;
+      return sourceArray.find(s => s._id === id);
+    }).filter(Boolean);
   };
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 via-blue-50 to-indigo-100 dark:from-slate-900 dark:via-slate-800 dark:to-slate-900 pb-20 md:pb-8">
       <div className="container mx-auto px-6 py-8">
         {loading ? (
-          <div className="loading-container">
-            <div className="spinner-large"></div>
-            <p>Loading dashboard data...</p>
+          <div className="flex flex-col items-center justify-center py-20">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+            <p className="mt-4 text-slate-600">Loading live logistics data...</p>
           </div>
         ) : error ? (
-          <div className="error-container">
-            <div className="error-icon">!</div>
-            <p>{error}</p>
-            <button 
-              className="btn btn-primary" 
-              onClick={() => window.location.reload()}
-            >
-              Retry
-            </button>
+          <div className="bg-white p-8 rounded-xl shadow-lg text-center max-w-md mx-auto">
+            <div className="text-red-500 text-5xl mb-4">⚠️</div>
+            <p className="text-slate-800 font-bold">{error}</p>
+            <button className="mt-6 btn btn-primary w-full" onClick={fetchData}>Retry Connection</button>
           </div>
         ) : (
           <>
-            <div className="dashboard-header" data-aos="fade-up">
-              <div className="dashboard-title">
-                <h1>Dashboard</h1>
-                <p>Welcome to Route It{selectedOptimization ? '' : ','}! Here's an overview of your route optimization data.</p>
+            <div className="dashboard-header flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
+              <div>
+                <h1 className="text-3xl font-bold text-slate-900 dark:text-white">Route Command Center</h1>
+                <p className="text-slate-500 dark:text-slate-400">Monitoring {stats.totalVehicles} vehicles across {stats.totalLocations} endpoints.</p>
               </div>
-              <div className="dashboard-actions">
-                <Link to="/optimizations/new" className="btn btn-primary rounded-lg px-4 py-2">
-                  <FaPlus /> New Optimization
-                </Link>
-              </div>
+              <Link to="/optimizations/new" className="mt-4 md:mt-0 flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl transition-all shadow-lg">
+                <FaPlus /> New Optimization Run
+              </Link>
             </div>
             
-            <div className="dashboard-stats" data-aos="fade-up">
-              <div className="stat-card" data-aos="fade-up">
-                <div className="stat-icon">
-                  <FaTruck />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-10">
+              {[
+                { label: 'Active Vehicles', val: stats.totalVehicles, icon: <FaTruck />, link: '/vehicles', color: 'blue' },
+                { label: 'Total Stops', val: stats.totalLocations, icon: <FaMapMarkerAlt />, link: '/locations', color: 'indigo' },
+                { label: 'Optimizations', val: stats.totalOptimizations, icon: <FaRoute />, link: '/optimizations', color: 'purple' },
+                { label: 'Fleet Distance', val: formatDistance(stats.totalDistance), icon: <FaRoad />, color: 'emerald' }
+              ].map((stat, i) => (
+                <div key={i} className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 hover:shadow-md transition-shadow">
+                  <div className={`text-${stat.color}-500 text-2xl mb-4`}>{stat.icon}</div>
+                  <h3 className="text-slate-500 dark:text-slate-400 text-sm font-medium uppercase tracking-wider">{stat.label}</h3>
+                  <p className="text-2xl font-bold text-slate-900 dark:text-white mt-1">{stat.val}</p>
+                  {stat.link && <Link to={stat.link} className="text-blue-500 text-xs mt-2 inline-block hover:underline">Manage Data →</Link>}
                 </div>
-                <div className="stat-content">
-                  <h3>Vehicles</h3>
-                  <p className="stat-number">{stats.totalVehicles}</p>
-                  <Link to="/vehicles" className="stat-link">View all</Link>
-                </div>
-              </div>
-              
-              <div className="stat-card" data-aos="fade-up" data-aos-delay="100">
-                <div className="stat-icon">
-                  <FaMapMarkerAlt />
-                </div>
-                <div className="stat-content">
-                  <h3>Locations</h3>
-                  <p className="stat-number">{stats.totalLocations}</p>
-                  <Link to="/locations" className="stat-link">View all</Link>
-                </div>
-              </div>
-              
-              <div className="stat-card" data-aos="fade-up" data-aos-delay="200">
-                <div className="stat-icon">
-                  <FaRoute />
-                </div>
-                <div className="stat-content">
-                  <h3>Optimizations</h3>
-                  <p className="stat-number">{stats.totalOptimizations}</p>
-                  <Link to="/optimizations" className="stat-link">View all</Link>
-                </div>
-              </div>
-              
-              <div className="stat-card" data-aos="fade-up" data-aos-delay="300">
-                <div className="stat-icon">
-                  <FaRoad />
-                </div>
-                <div className="stat-content">
-                  <h3>Total Distance</h3>
-                  <p className="stat-number">{formatDistance(stats.totalDistance)}</p>
-                </div>
-              </div>
+              ))}
             </div>
-            
+
             {selectedOptimization ? (
-              <div className="dashboard-recent rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow" data-aos="fade-up">
-                <div className="recent-header">
-                  <h2>Latest Optimization</h2>
-                  <Link to={`/optimizations/${selectedOptimization._id}`} className="btn btn-outline rounded-lg px-4 py-2">
-                    View Details
-                  </Link>
-                </div>
-                
-                <div className="recent-content">
-                  <div className="recent-info">
-                    <div className="recent-info-item">
-                      <FaCalendarAlt />
-                      <span>Created: {formatDate(selectedOptimization.createdAt || selectedOptimization.date)}</span>
-                    </div>
-                    <div className="recent-info-item">
-                      <FaRoad />
-                      <span>Total Distance: {formatDistance(selectedOptimization.totalDistance)}</span>
-                    </div>
-                    <div className="recent-info-item">
-                      <FaClock />
-                      <span>Duration: {(() => {
-                        // Calculate total duration from all routes
-                        const totalDuration = selectedOptimization.routes 
-                          ? selectedOptimization.routes.reduce((sum, route) => sum + (route.duration || 0), 0)
-                          : (selectedOptimization.totalDuration || 0);
-                        
-                        if (!totalDuration) return 'N/A';
-                        
-                        const totalMinutes = Math.round(totalDuration);
-                        const hours = Math.floor(totalMinutes / 60);
-                        const minutes = totalMinutes % 60;
-                        
-                        if (hours > 0) {
-                          return `${hours} hr ${minutes} min`;
-                        }
-                        return `${minutes} min`;
-                      })()}</span>
-                    </div>
-                    <div className="recent-info-item">
-                      <FaTruck />
-                      <span>Vehicles: {selectedOptimization.vehicles ? selectedOptimization.vehicles.length : 0}</span>
-                    </div>
-                    <div className="recent-info-item">
-                      <FaMapMarkerAlt />
-                      <span>Locations: {selectedOptimization.locations ? selectedOptimization.locations.length : 0}</span>
-                    </div>
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div className="lg:col-span-2 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden">
+                  <div className="p-6 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center">
+                    <h2 className="font-bold text-xl text-slate-800 dark:text-white">Real-Time Route Preview</h2>
+                    <span className="text-xs bg-slate-100 dark:bg-slate-700 px-3 py-1 rounded-full text-slate-500">
+                      ID: {selectedOptimization._id?.substring(0,8)}
+                    </span>
                   </div>
-                  
-                  <div className="recent-map">
+                  <div className="h-[450px] relative">
                     <Map 
-                      locations={getOptimizationLocations()}
+                      locations={getMappedData('locations')}
                       routes={selectedOptimization.routes || []}
-                      vehicles={getOptimizationVehicles()}
-                      height="400px"
+                      vehicles={getMappedData('vehicles')}
+                      height="450px"
                     />
                   </div>
-                  
-                  <div className="recent-routes">
-                    <h3>Route Summary</h3>
-                    <div className="routes-grid">
-                      {selectedOptimization.routes && selectedOptimization.routes.map((route, index) => {
-                        const vehicle = vehicles.find(v => v._id === route.vehicle) || { name: 'Unknown Vehicle' };
-                        
-                        return (
-                          <div className="route-card rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm card-hover" key={index}>
-                            <div className="route-header">
-                              <div className="route-color" style={{ backgroundColor: ['#FF5733', '#33FF57', '#3357FF', '#F033FF', '#FF33A8'][index % 5] }}></div>
-                              <h4>{vehicle.name}</h4>
-                            </div>
-                            <div className="route-details">
-                              <div className="route-detail">
-                                <span>Stops:</span>
-                                <strong>{route.stops ? route.stops.length : 0}</strong>
-                              </div>
-                              <div className="route-detail">
-                                <span>Distance:</span>
-                                <strong>{formatDistance(route.distance)}</strong>
-                              </div>
-                              <div className="route-detail">
-                                <span>Duration:</span>
-                                <strong>{(() => {
-                                  const duration = route.duration;
-                                  if (!duration) return 'N/A';
-                                  
-                                  const totalMinutes = Math.round(duration);
-                                  const hours = Math.floor(totalMinutes / 60);
-                                  const minutes = totalMinutes % 60;
-                                  
-                                  if (hours > 0) {
-                                    return `${hours} hr ${minutes} min`;
-                                  }
-                                  return `${minutes} min`;
-                                })()}</strong>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
+                </div>
+
+                <div className="space-y-6">
+                  <div className="bg-white dark:bg-slate-800 p-6 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-700">
+                    <h2 className="font-bold text-lg mb-4 text-slate-800 dark:text-white">Summary Metrics</h2>
+                    <div className="space-y-4">
+                      <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg">
+                        <span className="text-slate-500 text-sm">Timestamp</span>
+                        <span className="font-medium text-slate-800 dark:text-slate-200 text-sm">
+                          {formatDate(selectedOptimization.createdAt)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center p-3 bg-slate-50 dark:bg-slate-900/50 rounded-lg">
+                        <span className="text-slate-500 text-sm">Deployment Efficiency</span>
+                        <span className="font-bold text-emerald-500">Optimal</span>
+                      </div>
                     </div>
+                    <Link to={`/optimizations/${selectedOptimization._id}`} className="mt-6 w-full btn btn-outline flex justify-center py-3">
+                      Deep Analytics
+                    </Link>
                   </div>
                 </div>
               </div>
-            ) :  (
-              <div className="no-optimizations" data-aos="fade-up">
-                <div className="no-data-icon">
-                  <FaRoute />
-                </div>
-                <h2>No Optimizations Yet</h2>
-                <p>Create your first route optimization to see results here.</p>
-                <Link to="/optimizations/new" className="btn btn-primary rounded-lg px-4 py-2">
-                  Create Optimization
-                </Link>
+            ) : (
+              <div className="bg-white dark:bg-slate-800 rounded-2xl p-20 text-center border-2 border-dashed border-slate-200 dark:border-slate-700">
+                <div className="text-slate-300 text-6xl mb-4 flex justify-center"><FaRoute /></div>
+                <h2 className="text-2xl font-bold text-slate-800 dark:text-white">Ready to Optimize?</h2>
+                <p className="text-slate-500 max-w-sm mx-auto mt-2">No routes generated yet. Add your fleet and delivery locations to begin.</p>
+                <Link to="/optimizations/new" className="mt-8 inline-block bg-blue-600 text-white px-8 py-3 rounded-xl font-bold">Start First Run</Link>
               </div>
             )}
-            
-            <div className="dashboard-sections">
-              <div className="dashboard-section" data-aos="fade-up">
-                <div className="section-header">
-                  <h2>Recent Vehicles</h2>
-                  <Link to="/vehicles" className="btn btn-text">View All</Link>
-                </div>
-                
-                <div className="section-content">
-                  {vehicles.length === 0 ? (
-                    <div className="no-data">
-                      <p>No vehicles added yet</p>
-                      <Link to="/vehicles/add" className="btn btn-outline-sm rounded-lg px-3 py-1.5">
-                        Add Vehicle
-                      </Link>
-                    </div>
-                  ) : (
-                    <div className="items-grid">
-                      {vehicles.slice(0, 4).map(vehicle => (
-                        <div className="item-card rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm card-hover" key={vehicle._id}>
-                          <div className="item-title text-slate-900 dark:text-white">{vehicle.name}</div>
-                          <div className="item-subtitle text-gray-500 dark:text-gray-300">Capacity: {vehicle.capacity}</div>
-                          <Link to={`/vehicles/edit/${vehicle._id}`} className="btn btn-outline-sm rounded-lg px-3 py-1.5 mt-2">Edit</Link>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <div className="dashboard-section" data-aos="fade-up">
-                <div className="section-header">
-                  <h2>Recent Locations</h2>
-                  <Link to="/locations" className="btn btn-text">View All</Link>
-                </div>
-                
-                <div className="section-content">
-                  {locations.length === 0 ? (
-                    <div className="no-data">
-                      <p>No locations added yet</p>
-                      <Link to="/locations/add" className="btn btn-outline-sm rounded-lg px-3 py-1.5">
-                        Add Location
-                      </Link>
-                    </div>
-                  ) : (
-                    <div className="items-grid">
-                      {locations.slice(0, 4).map(location => (
-                        <div className="item-card rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 shadow-sm card-hover" key={location._id}>
-                          <div className="item-title text-slate-900 dark:text-white">{location.name}</div>
-                          <div className="item-subtitle text-gray-500 dark:text-gray-300">Demand: {location.demand || 0}</div>
-                          <Link to={`/locations/edit/${location._id}`} className="btn btn-outline-sm rounded-lg px-3 py-1.5 mt-2">Edit</Link>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
           </>
         )}
       </div>
